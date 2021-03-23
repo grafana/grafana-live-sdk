@@ -20,7 +20,8 @@ type Converter struct {
 	parser parsers.Parser
 }
 
-// NewConverter creates new Converter.
+// NewConverter creates new Converter from Influx/Telegraf format to Grafana Data Frames.
+// This converter generates one frame for each input metric name and time combination.
 func NewConverter() *Converter {
 	return &Converter{
 		parser: influx.NewParser(influx.NewMetricHandler()),
@@ -39,30 +40,26 @@ func (c *Converter) Convert(body []byte) ([]telemetry.FrameWrapper, error) {
 		return nil, fmt.Errorf("error parsing metrics: %w", err)
 	}
 
-	metricFrames := make(map[string]*MetricFrame)
+	metricFrames := make(map[string]*metricFrame)
 
 	for _, m := range metrics {
-		var metricFrame *MetricFrame
+		var frame *metricFrame
 		var ok bool
 		batchKey := getMetricFrameKey(m)
-		metricFrame, ok = metricFrames[batchKey]
+		frame, ok = metricFrames[batchKey]
 		if ok {
-			// Existing time frame.
-			err := metricFrame.extend(m)
+			// Existing frame.
+			err := frame.extend(m)
 			if err != nil {
 				return nil, err
 			}
 		} else {
-			var err error
-			metricFrame, err = newMetricFrame(m)
-			if err != nil {
-				continue
-			}
-			err = metricFrame.extend(m)
+			frame = newMetricFrame(m)
+			err = frame.extend(m)
 			if err != nil {
 				return nil, err
 			}
-			metricFrames[batchKey] = metricFrame
+			metricFrames[batchKey] = frame
 		}
 	}
 
@@ -74,33 +71,33 @@ func (c *Converter) Convert(body []byte) ([]telemetry.FrameWrapper, error) {
 	return frameWrappers, nil
 }
 
-type MetricFrame struct {
+type metricFrame struct {
 	key    string
 	fields []*data.Field
 }
 
 // newMetricFrame will return a new frame with length 1.
-func newMetricFrame(m telegraf.Metric) (*MetricFrame, error) {
-	s := &MetricFrame{
+func newMetricFrame(m telegraf.Metric) *metricFrame {
+	s := &metricFrame{
 		key:    m.Name(),
 		fields: make([]*data.Field, 1),
 	}
 	s.fields[0] = data.NewField("time", nil, []time.Time{m.Time()})
-	return s, nil
+	return s
 }
 
-// Frame transforms MetricFrame to Grafana data.Frame.
-func (s *MetricFrame) Key() string {
+// Key returns a key which describes Frame metrics.
+func (s *metricFrame) Key() string {
 	return s.key
 }
 
-// Frame transforms MetricFrame to Grafana data.Frame.
-func (s *MetricFrame) Frame() *data.Frame {
+// Frame transforms metricFrame to Grafana data.Frame.
+func (s *metricFrame) Frame() *data.Frame {
 	return data.NewFrame(s.key, s.fields...)
 }
 
-// extend existing MetricFrame fields.
-func (s *MetricFrame) extend(m telegraf.Metric) error {
+// extend existing metricFrame fields.
+func (s *metricFrame) extend(m telegraf.Metric) error {
 	for _, f := range m.FieldList() {
 		ft := frameutil.FieldTypeFor(f.Value)
 		if ft == data.FieldTypeUnknown {
@@ -127,7 +124,7 @@ func (s *MetricFrame) extend(m telegraf.Metric) error {
 		case data.FieldTypeNullableInt64:
 			convert = converters.JSONValueToNullableInt64.Converter
 		default:
-			return fmt.Errorf("no converter %s=%v (%T) %s\n", f.Key, f.Value, f.Value, ft.ItemTypeString())
+			return fmt.Errorf("no converter %s=%v (%T) %s", f.Key, f.Value, f.Value, ft.ItemTypeString())
 		}
 
 		if v, err := convert(f.Value); err == nil {

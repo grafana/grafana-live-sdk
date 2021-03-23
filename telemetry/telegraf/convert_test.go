@@ -10,6 +10,7 @@ import (
 )
 
 func loadTestData(tb testing.TB, file string) []byte {
+	tb.Helper()
 	content, err := ioutil.ReadFile(filepath.Join("testdata", file+".txt"))
 	require.NoError(tb, err, "expected to be able to read file")
 	require.True(tb, len(content) > 0)
@@ -30,6 +31,7 @@ func TestConverter_Convert(t *testing.T) {
 
 	for _, tt := range testCases {
 		t.Run(tt.Name, func(t *testing.T) {
+			t.Parallel()
 			testData := loadTestData(t, "single_metric")
 			converter := NewConverter()
 			frameWrappers, err := converter.Convert(testData)
