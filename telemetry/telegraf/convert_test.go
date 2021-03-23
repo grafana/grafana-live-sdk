@@ -58,7 +58,7 @@ func TestConverter_Convert_NumFrameFields(t *testing.T) {
 	}
 }
 
-func BenchmarkMetricConverter_Convert(b *testing.B) {
+func BenchmarkConverter_Convert(b *testing.B) {
 	testData := loadTestData(b, "same_metrics_different_labels_same_time")
 	converter := NewConverter()
 	b.ReportAllocs()
