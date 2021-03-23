@@ -29,7 +29,7 @@ func NewConverter() *Converter {
 }
 
 // Each unique metric frame identified by name and time.
-func getMetricFrameKey(m telegraf.Metric) string {
+func getFrameKey(m telegraf.Metric) string {
 	return m.Name() + "_" + m.Time().String()
 }
 
@@ -40,13 +40,13 @@ func (c *Converter) Convert(body []byte) ([]telemetry.FrameWrapper, error) {
 		return nil, fmt.Errorf("error parsing metrics: %w", err)
 	}
 
+	// maintain the order of frames as they appear in input.
+	var frameKeyOrder []string
 	metricFrames := make(map[string]*metricFrame)
 
 	for _, m := range metrics {
-		var frame *metricFrame
-		var ok bool
-		batchKey := getMetricFrameKey(m)
-		frame, ok = metricFrames[batchKey]
+		frameKey := getFrameKey(m)
+		frame, ok := metricFrames[frameKey]
 		if ok {
 			// Existing frame.
 			err := frame.extend(m)
@@ -54,18 +54,19 @@ func (c *Converter) Convert(body []byte) ([]telemetry.FrameWrapper, error) {
 				return nil, err
 			}
 		} else {
+			frameKeyOrder = append(frameKeyOrder, frameKey)
 			frame = newMetricFrame(m)
 			err = frame.extend(m)
 			if err != nil {
 				return nil, err
 			}
-			metricFrames[batchKey] = frame
+			metricFrames[frameKey] = frame
 		}
 	}
 
 	frameWrappers := make([]telemetry.FrameWrapper, 0, len(metricFrames))
-	for _, metricFrame := range metricFrames {
-		frameWrappers = append(frameWrappers, metricFrame)
+	for _, key := range frameKeyOrder {
+		frameWrappers = append(frameWrappers, metricFrames[key])
 	}
 
 	return frameWrappers, nil
@@ -107,7 +108,6 @@ func (s *metricFrame) extend(m telegraf.Metric) error {
 		// Make all fields nullable.
 		ft = ft.NullableType()
 
-		// NOTE (FZambia): field pool?
 		field := data.NewFieldFromFieldType(ft, 1)
 		field.Name = f.Key
 		field.Labels = m.Tags()
@@ -127,9 +127,11 @@ func (s *metricFrame) extend(m telegraf.Metric) error {
 			return fmt.Errorf("no converter %s=%v (%T) %s", f.Key, f.Value, f.Value, ft.ItemTypeString())
 		}
 
-		if v, err := convert(f.Value); err == nil {
-			field.Set(0, v)
+		v, err := convert(f.Value)
+		if err != nil {
+			return fmt.Errorf("value convert error: %v", err)
 		}
+		field.Set(0, v)
 		s.fields = append(s.fields, field)
 	}
 	return nil
