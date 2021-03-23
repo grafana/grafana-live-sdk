@@ -1,0 +1,52 @@
+[run]
+skip-files = []
+
+[linters-settings.golint]
+min-confidence = 1
+
+[linters-settings.goconst]
+min-len = 2
+min-occurrences = 2
+
+[linters]
+disable-all = true
+enable = [
+  "bodyclose",
+  "deadcode",
+  "depguard",
+  "dogsled",
+  "errcheck",
+  "gochecknoinits",
+  "goconst",
+  "gocritic",
+  "goimports",
+  "golint",
+  "goprintffuncname",
+  "gosec",
+  "gosimple",
+  "govet",
+  "ineffassign",
+  "misspell",
+  "nakedret",
+  "rowserrcheck",
+  "exportloopref",
+  "staticcheck",
+  "structcheck",
+  "stylecheck",
+  "typecheck",
+  "unconvert",
+  "unused",
+  "varcheck",
+  "whitespace",
+  "gocyclo",
+  "unparam",
+  "dogsled",
+  "asciicheck",
+  "errorlint",
+  "sqlclosecheck",
+  "thelper",
+]
+# Don't require that errors are included through wrapping, since might not always want to wrap an error
+[[issues.exclude-rules]]
+linters = ["errorlint"]
+text = "non-wrapping format verb for fmt.Errorf"
