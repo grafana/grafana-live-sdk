@@ -1,6 +1,7 @@
 package telegraf
 
 import (
+	"flag"
 	"io/ioutil"
 	"path/filepath"
 	"testing"
@@ -37,13 +38,15 @@ func TestConverter_Convert(t *testing.T) {
 			frameWrappers, err := converter.Convert(testData)
 			require.NoError(t, err)
 			require.Len(t, frameWrappers, 1)
-			for _, mf := range frameWrappers {
-				_, err := data.FrameToJSON(mf.Frame(), true, true)
+			for _, fw := range frameWrappers {
+				_, err := data.FrameToJSON(fw.Frame(), true, true)
 				require.NoError(t, err)
 			}
 		})
 	}
 }
+
+var update = flag.Bool("update", false, "update golden files")
 
 func TestConverter_Convert_NumFrameFields(t *testing.T) {
 	testData := loadTestData(t, "same_metrics_different_labels_same_time")
@@ -51,11 +54,24 @@ func TestConverter_Convert_NumFrameFields(t *testing.T) {
 	frameWrappers, err := converter.Convert(testData)
 	require.NoError(t, err)
 	require.Len(t, frameWrappers, 1)
+	frameWrapper := frameWrappers[0]
 
-	for _, mf := range frameWrappers {
-		frame := mf.Frame()
-		require.Len(t, frame.Fields, 131) // 10 measurements across 13 metrics + time field.
+	goldenFile := filepath.Join("testdata", "golden.json")
+
+	frame := frameWrapper.Frame()
+	require.Len(t, frame.Fields, 131) // 10 measurements across 13 metrics + time field.
+	frameJSON, err := data.FrameToJSON(frame, true, true)
+	require.NoError(t, err)
+	if *update {
+		if err := ioutil.WriteFile(goldenFile, frameJSON, 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
+	want, err := ioutil.ReadFile(goldenFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	require.JSONEqf(t, string(frameJSON), string(want), "not matched with golden file")
 }
 
 func BenchmarkConverter_Convert(b *testing.B) {
