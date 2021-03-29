@@ -2,6 +2,7 @@ package telegraf
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/grafana/grafana-live-sdk/internal/frameutil"
@@ -17,15 +18,30 @@ var _ telemetry.Converter = (*Converter)(nil)
 
 // Converter converts Telegraf metrics to Grafana frames.
 type Converter struct {
-	parser parsers.Parser
+	parser          parsers.Parser
+	useLabelsColumn bool
+}
+
+// ConverterOption ...
+type ConverterOption func(*Converter)
+
+// WithUseLabelsColumn ...
+func WithUseLabelsColumn(enabled bool) ConverterOption {
+	return func(h *Converter) {
+		h.useLabelsColumn = enabled
+	}
 }
 
 // NewConverter creates new Converter from Influx/Telegraf format to Grafana Data Frames.
 // This converter generates one frame for each input metric name and time combination.
-func NewConverter() *Converter {
-	return &Converter{
+func NewConverter(opts ...ConverterOption) *Converter {
+	c := &Converter{
 		parser: influx.NewParser(influx.NewMetricHandler()),
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // Each unique metric frame identified by name and time.
@@ -39,7 +55,13 @@ func (c *Converter) Convert(body []byte) ([]telemetry.FrameWrapper, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error parsing metrics: %w", err)
 	}
+	if !c.useLabelsColumn {
+		return c.convertWideFields(metrics)
+	}
+	return c.convertWithLabelsColumn(metrics)
+}
 
+func (c *Converter) convertWideFields(metrics []telegraf.Metric) ([]telemetry.FrameWrapper, error) {
 	// maintain the order of frames as they appear in input.
 	var frameKeyOrder []string
 	metricFrames := make(map[string]*metricFrame)
@@ -56,7 +78,40 @@ func (c *Converter) Convert(body []byte) ([]telemetry.FrameWrapper, error) {
 		} else {
 			frameKeyOrder = append(frameKeyOrder, frameKey)
 			frame = newMetricFrame(m)
-			err = frame.extend(m)
+			err := frame.extend(m)
+			if err != nil {
+				return nil, err
+			}
+			metricFrames[frameKey] = frame
+		}
+	}
+
+	frameWrappers := make([]telemetry.FrameWrapper, 0, len(metricFrames))
+	for _, key := range frameKeyOrder {
+		frameWrappers = append(frameWrappers, metricFrames[key])
+	}
+
+	return frameWrappers, nil
+}
+
+func (c *Converter) convertWithLabelsColumn(metrics []telegraf.Metric) ([]telemetry.FrameWrapper, error) {
+	// maintain the order of frames as they appear in input.
+	var frameKeyOrder []string
+	metricFrames := make(map[string]*metricFrame)
+
+	for _, m := range metrics {
+		frameKey := m.Name()
+		frame, ok := metricFrames[frameKey]
+		if ok {
+			// Existing frame.
+			err := frame.append(m)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			frameKeyOrder = append(frameKeyOrder, frameKey)
+			frame = newMetricFrameLabelsColumn(m)
+			err := frame.append(m)
 			if err != nil {
 				return nil, err
 			}
@@ -73,8 +128,9 @@ func (c *Converter) Convert(body []byte) ([]telemetry.FrameWrapper, error) {
 }
 
 type metricFrame struct {
-	key    string
-	fields []*data.Field
+	key        string
+	fields     []*data.Field
+	fieldCache map[string]int
 }
 
 // newMetricFrame will return a new frame with length 1.
@@ -84,6 +140,18 @@ func newMetricFrame(m telegraf.Metric) *metricFrame {
 		fields: make([]*data.Field, 1),
 	}
 	s.fields[0] = data.NewField("time", nil, []time.Time{m.Time()})
+	return s
+}
+
+// newMetricFrame will return a new frame with length 1.
+func newMetricFrameLabelsColumn(m telegraf.Metric) *metricFrame {
+	s := &metricFrame{
+		key:        m.Name(),
+		fields:     make([]*data.Field, 2),
+		fieldCache: map[string]int{},
+	}
+	s.fields[0] = data.NewField("time", nil, []time.Time{})
+	s.fields[1] = data.NewField("labels", nil, []string{})
 	return s
 }
 
@@ -100,39 +168,91 @@ func (s *metricFrame) Frame() *data.Frame {
 // extend existing metricFrame fields.
 func (s *metricFrame) extend(m telegraf.Metric) error {
 	for _, f := range m.FieldList() {
-		ft := frameutil.FieldTypeFor(f.Value)
-		if ft == data.FieldTypeUnknown {
-			return fmt.Errorf("unknown type: %t", f.Value)
+		ft, v, err := getFieldTypeAndValue(f)
+		if err != nil {
+			return err
 		}
-
-		// Make all fields nullable.
-		ft = ft.NullableType()
-
 		field := data.NewFieldFromFieldType(ft, 1)
 		field.Name = f.Key
 		field.Labels = m.Tags()
-
-		var convert func(v interface{}) (interface{}, error)
-
-		switch ft {
-		case data.FieldTypeNullableString:
-			convert = converters.AnyToNullableString.Converter
-		case data.FieldTypeNullableFloat64:
-			convert = converters.JSONValueToNullableFloat64.Converter
-		case data.FieldTypeNullableBool:
-			convert = converters.BoolToNullableBool.Converter
-		case data.FieldTypeNullableInt64:
-			convert = converters.JSONValueToNullableInt64.Converter
-		default:
-			return fmt.Errorf("no converter %s=%v (%T) %s", f.Key, f.Value, f.Value, ft.ItemTypeString())
-		}
-
-		v, err := convert(f.Value)
-		if err != nil {
-			return fmt.Errorf("value convert error: %v", err)
-		}
 		field.Set(0, v)
 		s.fields = append(s.fields, field)
 	}
 	return nil
+}
+
+func buildLabelString(tags []*telegraf.Tag) string {
+	var builder strings.Builder
+	started := false
+	for i := 0; i < len(tags); i += 1 {
+		if started {
+			builder.WriteString(",")
+		}
+		builder.WriteString(tags[i].Key)
+		builder.WriteString("=")
+		builder.WriteString(tags[i].Value)
+		started = true
+	}
+	return builder.String()
+}
+
+// append to existing metricFrame fields.
+func (s *metricFrame) append(m telegraf.Metric) error {
+	s.fields[0].Append(m.Time())
+	s.fields[1].Append(buildLabelString(m.TagList()))
+
+	for _, f := range m.FieldList() {
+		ft, v, err := getFieldTypeAndValue(f)
+		if err != nil {
+			return err
+		}
+		if index, ok := s.fieldCache[f.Key]; ok {
+			s.fields[index].Append(v)
+		} else {
+			field := data.NewFieldFromFieldType(ft, 1)
+			field.Name = f.Key
+			field.Set(0, v)
+			s.fields = append(s.fields, field)
+			s.fieldCache[f.Key] = len(s.fields) - 1
+		}
+	}
+	return nil
+}
+
+func getFieldTypeAndValue(f *telegraf.Field) (data.FieldType, interface{}, error) {
+	ft := frameutil.FieldTypeFor(f.Value)
+	if ft == data.FieldTypeUnknown {
+		return ft, nil, fmt.Errorf("unknown type: %t", f.Value)
+	}
+
+	// Make all fields nullable.
+	ft = ft.NullableType()
+
+	convert, ok := getConvertFunc(ft)
+	if !ok {
+		return ft, nil, fmt.Errorf("no converter %s=%v (%T) %s", f.Key, f.Value, f.Value, ft.ItemTypeString())
+	}
+
+	v, err := convert(f.Value)
+	if err != nil {
+		return ft, nil, fmt.Errorf("value convert error: %v", err)
+	}
+	return ft, v, nil
+}
+
+func getConvertFunc(ft data.FieldType) (func(v interface{}) (interface{}, error), bool) {
+	var convert func(v interface{}) (interface{}, error)
+	switch ft {
+	case data.FieldTypeNullableString:
+		convert = converters.AnyToNullableString.Converter
+	case data.FieldTypeNullableFloat64:
+		convert = converters.JSONValueToNullableFloat64.Converter
+	case data.FieldTypeNullableBool:
+		convert = converters.BoolToNullableBool.Converter
+	case data.FieldTypeNullableInt64:
+		convert = converters.JSONValueToNullableInt64.Converter
+	default:
+		return nil, false
+	}
+	return convert, true
 }
