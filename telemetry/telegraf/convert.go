@@ -2,7 +2,6 @@ package telegraf
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/grafana/grafana-live-sdk/telemetry"
@@ -187,25 +186,10 @@ func tagsToLabels(tags []*telegraf.Tag) data.Labels {
 	return labels
 }
 
-func buildLabelString(tags []*telegraf.Tag) string {
-	var builder strings.Builder
-	started := false
-	for i := 0; i < len(tags); i += 1 {
-		if started {
-			builder.WriteString(",")
-		}
-		builder.WriteString(tags[i].Key)
-		builder.WriteString("=")
-		builder.WriteString(tags[i].Value)
-		started = true
-	}
-	return builder.String()
-}
-
 // append to existing metricFrame fields.
 func (s *metricFrame) append(m telegraf.Metric) error {
 	s.fields[0].Append(m.Time())
-	s.fields[1].Append(buildLabelString(m.TagList())) // TODO, use labels.String()
+	s.fields[1].Append(tagsToLabels(m.TagList()).String()) // TODO, use labels.String()
 
 	for _, f := range m.FieldList() {
 		ft, v, err := getFieldTypeAndValue(f)
