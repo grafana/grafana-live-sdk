@@ -2,23 +2,19 @@ package telegraf
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
-	"github.com/grafana/grafana-live-sdk/internal/frameutil"
 	"github.com/grafana/grafana-live-sdk/telemetry"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/converters"
-	"github.com/influxdata/telegraf"
-	"github.com/influxdata/telegraf/plugins/parsers"
-	"github.com/influxdata/telegraf/plugins/parsers/influx"
+	influx "github.com/influxdata/line-protocol"
 )
 
 var _ telemetry.Converter = (*Converter)(nil)
 
 // Converter converts Telegraf metrics to Grafana frames.
 type Converter struct {
-	parser          parsers.Parser
+	parser          *influx.Parser
 	useLabelsColumn bool
 }
 
@@ -45,7 +41,7 @@ func NewConverter(opts ...ConverterOption) *Converter {
 }
 
 // Each unique metric frame identified by name and time.
-func getFrameKey(m telegraf.Metric) string {
+func getFrameKey(m influx.Metric) string {
 	return m.Name() + "_" + m.Time().String()
 }
 
@@ -61,7 +57,7 @@ func (c *Converter) Convert(body []byte) ([]telemetry.FrameWrapper, error) {
 	return c.convertWithLabelsColumn(metrics)
 }
 
-func (c *Converter) convertWideFields(metrics []telegraf.Metric) ([]telemetry.FrameWrapper, error) {
+func (c *Converter) convertWideFields(metrics []influx.Metric) ([]telemetry.FrameWrapper, error) {
 	// maintain the order of frames as they appear in input.
 	var frameKeyOrder []string
 	metricFrames := make(map[string]*metricFrame)
@@ -94,7 +90,7 @@ func (c *Converter) convertWideFields(metrics []telegraf.Metric) ([]telemetry.Fr
 	return frameWrappers, nil
 }
 
-func (c *Converter) convertWithLabelsColumn(metrics []telegraf.Metric) ([]telemetry.FrameWrapper, error) {
+func (c *Converter) convertWithLabelsColumn(metrics []influx.Metric) ([]telemetry.FrameWrapper, error) {
 	// maintain the order of frames as they appear in input.
 	var frameKeyOrder []string
 	metricFrames := make(map[string]*metricFrame)
@@ -134,7 +130,7 @@ type metricFrame struct {
 }
 
 // newMetricFrame will return a new frame with length 1.
-func newMetricFrame(m telegraf.Metric) *metricFrame {
+func newMetricFrame(m influx.Metric) *metricFrame {
 	s := &metricFrame{
 		key:    m.Name(),
 		fields: make([]*data.Field, 1),
@@ -144,7 +140,7 @@ func newMetricFrame(m telegraf.Metric) *metricFrame {
 }
 
 // newMetricFrame will return a new frame with length 1.
-func newMetricFrameLabelsColumn(m telegraf.Metric) *metricFrame {
+func newMetricFrameLabelsColumn(m influx.Metric) *metricFrame {
 	s := &metricFrame{
 		key:        m.Name(),
 		fields:     make([]*data.Field, 2),
@@ -166,7 +162,8 @@ func (s *metricFrame) Frame() *data.Frame {
 }
 
 // extend existing metricFrame fields.
-func (s *metricFrame) extend(m telegraf.Metric) error {
+func (s *metricFrame) extend(m influx.Metric) error {
+	labels := tagsToLabels(m.TagList())
 	for _, f := range m.FieldList() {
 		ft, v, err := getFieldTypeAndValue(f)
 		if err != nil {
@@ -174,32 +171,25 @@ func (s *metricFrame) extend(m telegraf.Metric) error {
 		}
 		field := data.NewFieldFromFieldType(ft, 1)
 		field.Name = f.Key
-		field.Labels = m.Tags()
+		field.Labels = labels
 		field.Set(0, v)
 		s.fields = append(s.fields, field)
 	}
 	return nil
 }
 
-func buildLabelString(tags []*telegraf.Tag) string {
-	var builder strings.Builder
-	started := false
+func tagsToLabels(tags []*influx.Tag) data.Labels {
+	labels := data.Labels{}
 	for i := 0; i < len(tags); i += 1 {
-		if started {
-			builder.WriteString(",")
-		}
-		builder.WriteString(tags[i].Key)
-		builder.WriteString("=")
-		builder.WriteString(tags[i].Value)
-		started = true
+		labels[tags[i].Key] = tags[i].Value
 	}
-	return builder.String()
+	return labels
 }
 
 // append to existing metricFrame fields.
-func (s *metricFrame) append(m telegraf.Metric) error {
+func (s *metricFrame) append(m influx.Metric) error {
 	s.fields[0].Append(m.Time())
-	s.fields[1].Append(buildLabelString(m.TagList()))
+	s.fields[1].Append(tagsToLabels(m.TagList()).String()) // TODO, use labels.String()
 
 	for _, f := range m.FieldList() {
 		ft, v, err := getFieldTypeAndValue(f)
@@ -219,8 +209,8 @@ func (s *metricFrame) append(m telegraf.Metric) error {
 	return nil
 }
 
-func getFieldTypeAndValue(f *telegraf.Field) (data.FieldType, interface{}, error) {
-	ft := frameutil.FieldTypeFor(f.Value)
+func getFieldTypeAndValue(f *influx.Field) (data.FieldType, interface{}, error) {
+	ft := data.FieldTypeFor(f.Value)
 	if ft == data.FieldTypeUnknown {
 		return ft, nil, fmt.Errorf("unknown type: %t", f.Value)
 	}
