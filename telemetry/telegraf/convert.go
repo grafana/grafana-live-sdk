@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/grafana/grafana-live-sdk/internal/frameutil"
 	"github.com/grafana/grafana-live-sdk/telemetry"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/converters"
@@ -227,7 +226,7 @@ func (s *metricFrame) append(m telegraf.Metric) error {
 }
 
 func getFieldTypeAndValue(f *telegraf.Field) (data.FieldType, interface{}, error) {
-	ft := frameutil.FieldTypeFor(f.Value)
+	ft := data.FieldTypeFor(f.Value)
 	if ft == data.FieldTypeUnknown {
 		return ft, nil, fmt.Errorf("unknown type: %t", f.Value)
 	}
