@@ -7,14 +7,14 @@ import (
 	"github.com/grafana/grafana-live-sdk/telemetry"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/converters"
-	telegraf "github.com/influxdata/line-protocol"
+	influx "github.com/influxdata/line-protocol"
 )
 
 var _ telemetry.Converter = (*Converter)(nil)
 
 // Converter converts Telegraf metrics to Grafana frames.
 type Converter struct {
-	parser          *telegraf.Parser
+	parser          *influx.Parser
 	useLabelsColumn bool
 }
 
@@ -32,7 +32,7 @@ func WithUseLabelsColumn(enabled bool) ConverterOption {
 // This converter generates one frame for each input metric name and time combination.
 func NewConverter(opts ...ConverterOption) *Converter {
 	c := &Converter{
-		parser: telegraf.NewParser(telegraf.NewMetricHandler()),
+		parser: influx.NewParser(influx.NewMetricHandler()),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -41,7 +41,7 @@ func NewConverter(opts ...ConverterOption) *Converter {
 }
 
 // Each unique metric frame identified by name and time.
-func getFrameKey(m telegraf.Metric) string {
+func getFrameKey(m influx.Metric) string {
 	return m.Name() + "_" + m.Time().String()
 }
 
@@ -57,7 +57,7 @@ func (c *Converter) Convert(body []byte) ([]telemetry.FrameWrapper, error) {
 	return c.convertWithLabelsColumn(metrics)
 }
 
-func (c *Converter) convertWideFields(metrics []telegraf.Metric) ([]telemetry.FrameWrapper, error) {
+func (c *Converter) convertWideFields(metrics []influx.Metric) ([]telemetry.FrameWrapper, error) {
 	// maintain the order of frames as they appear in input.
 	var frameKeyOrder []string
 	metricFrames := make(map[string]*metricFrame)
@@ -90,7 +90,7 @@ func (c *Converter) convertWideFields(metrics []telegraf.Metric) ([]telemetry.Fr
 	return frameWrappers, nil
 }
 
-func (c *Converter) convertWithLabelsColumn(metrics []telegraf.Metric) ([]telemetry.FrameWrapper, error) {
+func (c *Converter) convertWithLabelsColumn(metrics []influx.Metric) ([]telemetry.FrameWrapper, error) {
 	// maintain the order of frames as they appear in input.
 	var frameKeyOrder []string
 	metricFrames := make(map[string]*metricFrame)
@@ -130,7 +130,7 @@ type metricFrame struct {
 }
 
 // newMetricFrame will return a new frame with length 1.
-func newMetricFrame(m telegraf.Metric) *metricFrame {
+func newMetricFrame(m influx.Metric) *metricFrame {
 	s := &metricFrame{
 		key:    m.Name(),
 		fields: make([]*data.Field, 1),
@@ -140,7 +140,7 @@ func newMetricFrame(m telegraf.Metric) *metricFrame {
 }
 
 // newMetricFrame will return a new frame with length 1.
-func newMetricFrameLabelsColumn(m telegraf.Metric) *metricFrame {
+func newMetricFrameLabelsColumn(m influx.Metric) *metricFrame {
 	s := &metricFrame{
 		key:        m.Name(),
 		fields:     make([]*data.Field, 2),
@@ -162,7 +162,7 @@ func (s *metricFrame) Frame() *data.Frame {
 }
 
 // extend existing metricFrame fields.
-func (s *metricFrame) extend(m telegraf.Metric) error {
+func (s *metricFrame) extend(m influx.Metric) error {
 	labels := tagsToLabels(m.TagList())
 	for _, f := range m.FieldList() {
 		ft, v, err := getFieldTypeAndValue(f)
@@ -178,7 +178,7 @@ func (s *metricFrame) extend(m telegraf.Metric) error {
 	return nil
 }
 
-func tagsToLabels(tags []*telegraf.Tag) data.Labels {
+func tagsToLabels(tags []*influx.Tag) data.Labels {
 	labels := data.Labels{}
 	for i := 0; i < len(tags); i += 1 {
 		labels[tags[i].Key] = tags[i].Value
@@ -187,7 +187,7 @@ func tagsToLabels(tags []*telegraf.Tag) data.Labels {
 }
 
 // append to existing metricFrame fields.
-func (s *metricFrame) append(m telegraf.Metric) error {
+func (s *metricFrame) append(m influx.Metric) error {
 	s.fields[0].Append(m.Time())
 	s.fields[1].Append(tagsToLabels(m.TagList()).String()) // TODO, use labels.String()
 
@@ -209,7 +209,7 @@ func (s *metricFrame) append(m telegraf.Metric) error {
 	return nil
 }
 
-func getFieldTypeAndValue(f *telegraf.Field) (data.FieldType, interface{}, error) {
+func getFieldTypeAndValue(f *influx.Field) (data.FieldType, interface{}, error) {
 	ft := data.FieldTypeFor(f.Value)
 	if ft == data.FieldTypeUnknown {
 		return ft, nil, fmt.Errorf("unknown type: %t", f.Value)
