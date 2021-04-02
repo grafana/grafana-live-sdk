@@ -9,16 +9,14 @@ import (
 	"github.com/grafana/grafana-live-sdk/telemetry"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/converters"
-	"github.com/influxdata/telegraf"
-	"github.com/influxdata/telegraf/plugins/parsers"
-	"github.com/influxdata/telegraf/plugins/parsers/influx"
+	telegraf "github.com/influxdata/line-protocol"
 )
 
 var _ telemetry.Converter = (*Converter)(nil)
 
 // Converter converts Telegraf metrics to Grafana frames.
 type Converter struct {
-	parser          parsers.Parser
+	parser          *telegraf.Parser
 	useLabelsColumn bool
 }
 
@@ -36,7 +34,7 @@ func WithUseLabelsColumn(enabled bool) ConverterOption {
 // This converter generates one frame for each input metric name and time combination.
 func NewConverter(opts ...ConverterOption) *Converter {
 	c := &Converter{
-		parser: influx.NewParser(influx.NewMetricHandler()),
+		parser: telegraf.NewParser(telegraf.NewMetricHandler()),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -167,6 +165,7 @@ func (s *metricFrame) Frame() *data.Frame {
 
 // extend existing metricFrame fields.
 func (s *metricFrame) extend(m telegraf.Metric) error {
+	labels := tagsToLabels(m.TagList())
 	for _, f := range m.FieldList() {
 		ft, v, err := getFieldTypeAndValue(f)
 		if err != nil {
@@ -174,11 +173,19 @@ func (s *metricFrame) extend(m telegraf.Metric) error {
 		}
 		field := data.NewFieldFromFieldType(ft, 1)
 		field.Name = f.Key
-		field.Labels = m.Tags()
+		field.Labels = labels
 		field.Set(0, v)
 		s.fields = append(s.fields, field)
 	}
 	return nil
+}
+
+func tagsToLabels(tags []*telegraf.Tag) data.Labels {
+	labels := data.Labels{}
+	for i := 0; i < len(tags); i += 1 {
+		labels[tags[i].Key] = tags[i].Value
+	}
+	return labels
 }
 
 func buildLabelString(tags []*telegraf.Tag) string {
@@ -199,7 +206,7 @@ func buildLabelString(tags []*telegraf.Tag) string {
 // append to existing metricFrame fields.
 func (s *metricFrame) append(m telegraf.Metric) error {
 	s.fields[0].Append(m.Time())
-	s.fields[1].Append(buildLabelString(m.TagList()))
+	s.fields[1].Append(buildLabelString(m.TagList())) // TODO, use labels.String()
 
 	for _, f := range m.FieldList() {
 		ft, v, err := getFieldTypeAndValue(f)
