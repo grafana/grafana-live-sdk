@@ -113,6 +113,26 @@ func TestConverter_Convert_NumFrameFields(t *testing.T) {
 	require.JSONEqf(t, string(frameJSON), string(want), "not matched with golden file")
 }
 
+func TestConverter_Convert_FieldOrder(t *testing.T) {
+	converter := NewConverter()
+
+	testData := loadTestData(t, "single_metric")
+	frameWrappers, err := converter.Convert(testData)
+	require.NoError(t, err)
+	require.Len(t, frameWrappers, 1)
+	frameJSON1, err := data.FrameToJSON(frameWrappers[0].Frame(), true, true)
+	require.NoError(t, err)
+
+	testDataDifferentOrder := loadTestData(t, "single_metric_different_field_order")
+	frameWrappers, err = converter.Convert(testDataDifferentOrder)
+	require.NoError(t, err)
+	require.Len(t, frameWrappers, 1)
+	frameJSON2, err := data.FrameToJSON(frameWrappers[0].Frame(), true, true)
+	require.NoError(t, err)
+
+	require.JSONEqf(t, string(frameJSON1), string(frameJSON2), "frames must match")
+}
+
 func BenchmarkConverter_Convert_Wide(b *testing.B) {
 	testData := loadTestData(b, "same_metrics_different_labels_same_time")
 	converter := NewConverter()
