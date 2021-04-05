@@ -2,6 +2,7 @@ package telegraf
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/grafana/grafana-live-sdk/telemetry"
@@ -163,8 +164,12 @@ func (s *metricFrame) Frame() *data.Frame {
 
 // extend existing metricFrame fields.
 func (s *metricFrame) extend(m influx.Metric) error {
+	fields := m.FieldList()
+	sort.Slice(fields, func(i, j int) bool {
+		return fields[i].Key < fields[j].Key
+	})
 	labels := tagsToLabels(m.TagList())
-	for _, f := range m.FieldList() {
+	for _, f := range fields {
 		ft, v, err := getFieldTypeAndValue(f)
 		if err != nil {
 			return err
@@ -191,7 +196,12 @@ func (s *metricFrame) append(m influx.Metric) error {
 	s.fields[0].Append(m.Time())
 	s.fields[1].Append(tagsToLabels(m.TagList()).String()) // TODO, use labels.String()
 
-	for _, f := range m.FieldList() {
+	fields := m.FieldList()
+	sort.Slice(fields, func(i, j int) bool {
+		return fields[i].Key < fields[j].Key
+	})
+
+	for _, f := range fields {
 		ft, v, err := getFieldTypeAndValue(f)
 		if err != nil {
 			return err
