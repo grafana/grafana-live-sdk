@@ -1,6 +1,7 @@
 package telegraf
 
 import (
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"sort"
@@ -92,7 +93,7 @@ func (c *Converter) convertWideFields(metrics []influx.Metric) ([]telemetry.Fram
 				}
 			} else {
 				// Existing frame.
-				interval, err := frame.extendGetInterval(m)
+				interval, err := frame.extend(m)
 				if err != nil {
 					return nil, err
 				}
@@ -101,7 +102,7 @@ func (c *Converter) convertWideFields(metrics []influx.Metric) ([]telemetry.Fram
 		} else {
 			frameKeyOrder = append(frameKeyOrder, frameKey)
 			frame = newMetricFrame(m)
-			interval, err := frame.extendGetInterval(m)
+			interval, err := frame.extend(m)
 			if err != nil {
 				return nil, err
 			}
@@ -191,29 +192,8 @@ func (s *metricFrame) Frame() *data.Frame {
 	return data.NewFrame(s.key, s.fields...)
 }
 
-// extend existing metricFrame fields.
-func (s *metricFrame) extend(m influx.Metric) error {
-	fields := m.FieldList()
-	sort.Slice(fields, func(i, j int) bool {
-		return fields[i].Key < fields[j].Key
-	})
-	labels := tagsToLabels(m.TagList())
-	for _, f := range fields {
-		ft, v, err := getFieldTypeAndValue(f)
-		if err != nil {
-			return err
-		}
-		field := data.NewFieldFromFieldType(ft, 1)
-		field.Name = f.Key
-		field.Labels = labels
-		field.Set(0, v)
-		s.fields = append(s.fields, field)
-	}
-	return nil
-}
-
-// extendGetInterval extends existing metricFrame fields and returns extended interval.
-func (s *metricFrame) extendGetInterval(m influx.Metric) (fieldInterval, error) {
+// extend extends existing metricFrame fields and returns extended interval.
+func (s *metricFrame) extend(m influx.Metric) (fieldInterval, error) {
 	fields := m.FieldList()
 	sort.Slice(fields, func(i, j int) bool {
 		return fields[i].Key < fields[j].Key
@@ -277,15 +257,25 @@ func (s *metricFrame) appendInInterval(m influx.Metric, interval fieldInterval) 
 		s.timeCache[m.Time()] = struct{}{}
 	}
 
+	timeLen := s.fields[0].Len()
+
 	fields := m.FieldList()
 	sort.Slice(fields, func(i, j int) bool {
 		return fields[i].Key < fields[j].Key
 	})
 
+	if len(fields) != interval.To-interval.From {
+		return errors.New("error appending in interval: field number mismatch")
+	}
+
 	for i, f := range fields {
 		_, v, err := getFieldTypeAndValue(f)
 		if err != nil {
 			return err
+		}
+		if s.fields[i+interval.From].Len() >= timeLen {
+			// Duplicate timestamp?
+			return errors.New("error appending in interval: malformed input metrics")
 		}
 		s.fields[i+interval.From].Append(v)
 	}
