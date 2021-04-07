@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/grafana/grafana-live-sdk/telemetry"
@@ -43,11 +44,6 @@ func NewConverter(opts ...ConverterOption) *Converter {
 	return c
 }
 
-// Each unique metric frame identified by name and time.
-func getFrameKey(m influx.Metric) string {
-	return m.Name()
-}
-
 // Convert metrics.
 func (c *Converter) Convert(body []byte) ([]telemetry.FrameWrapper, error) {
 	metrics, err := c.parser.Parse(body)
@@ -82,17 +78,17 @@ func (c *Converter) convertWideFields(metrics []influx.Metric) ([]telemetry.Fram
 	fieldIntervals := map[uint32]fieldInterval{}
 
 	for _, m := range metrics {
-		frameKey := getFrameKey(m)
+		frameKey := m.Name()
 		mHash := getHash(m)
 		frame, ok := metricFrames[frameKey]
 		if ok {
+			// Existing frame.
 			if interval, ok := fieldIntervals[mHash]; ok {
 				err := frame.appendInInterval(m, interval)
 				if err != nil {
 					return nil, err
 				}
 			} else {
-				// Existing frame.
 				interval, err := frame.extend(m)
 				if err != nil {
 					return nil, err
@@ -100,6 +96,7 @@ func (c *Converter) convertWideFields(metrics []influx.Metric) ([]telemetry.Fram
 				fieldIntervals[mHash] = interval
 			}
 		} else {
+			// New frame.
 			frameKeyOrder = append(frameKeyOrder, frameKey)
 			frame = newMetricFrame(m)
 			interval, err := frame.extend(m)
@@ -153,10 +150,12 @@ func (c *Converter) convertWithLabelsColumn(metrics []influx.Metric) ([]telemetr
 }
 
 type metricFrame struct {
-	key        string
-	fields     []*data.Field
-	fieldCache map[string]int
-	timeCache  map[time.Time]struct{}
+	key             string
+	fields          []*data.Field
+	fieldCache      map[string]int
+	timeCache       map[time.Time]struct{}
+	frame           *data.Frame
+	createFrameOnce sync.Once
 }
 
 // newMetricFrame will return a new frame with length 1.
@@ -189,7 +188,10 @@ func (s *metricFrame) Key() string {
 
 // Frame transforms metricFrame to Grafana data.Frame.
 func (s *metricFrame) Frame() *data.Frame {
-	return data.NewFrame(s.key, s.fields...)
+	s.createFrameOnce.Do(func() {
+		s.frame = data.NewFrame(s.key, s.fields...)
+	})
+	return s.frame
 }
 
 // extend extends existing metricFrame fields and returns extended interval.
