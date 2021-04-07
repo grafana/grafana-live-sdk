@@ -31,8 +31,8 @@ func TestConverter_Convert(t *testing.T) {
 		NumFrames   int
 	}{
 		{Name: "single_metric", NumFields: 6, FieldLength: 1, NumFrames: 1},
-		{Name: "same_metrics_same_labels_different_time", NumFields: 6, FieldLength: 1, NumFrames: 2},
-		{Name: "same_metrics_different_labels_different_time", NumFields: 6, FieldLength: 1, NumFrames: 2},
+		{Name: "same_metrics_same_labels_different_time", NumFields: 6, FieldLength: 3, NumFrames: 1},
+		{Name: "same_metrics_different_labels_different_time", NumFields: 11, FieldLength: 1, NumFrames: 1},
 		{Name: "same_metrics_different_labels_same_time", NumFields: 131, FieldLength: 1, NumFrames: 1},
 	}
 
@@ -62,7 +62,7 @@ func TestConverter_Convert_LabelsColumn(t *testing.T) {
 		NumFrames   int
 	}{
 		{Name: "single_metric", NumFields: 7, FieldLength: 1, NumFrames: 1},
-		{Name: "same_metrics_same_labels_different_time", NumFields: 7, FieldLength: 2, NumFrames: 1},
+		{Name: "same_metrics_same_labels_different_time", NumFields: 7, FieldLength: 3, NumFrames: 1},
 		{Name: "same_metrics_different_labels_different_time", NumFields: 7, FieldLength: 2, NumFrames: 1},
 		{Name: "same_metrics_different_labels_same_time", NumFields: 12, FieldLength: 13, NumFrames: 1},
 	}

@@ -2,6 +2,7 @@ package telegraf
 
 import (
 	"fmt"
+	"hash/fnv"
 	"sort"
 	"time"
 
@@ -43,7 +44,7 @@ func NewConverter(opts ...ConverterOption) *Converter {
 
 // Each unique metric frame identified by name and time.
 func getFrameKey(m influx.Metric) string {
-	return m.Name() + "_" + m.Time().String()
+	return m.Name()
 }
 
 // Convert metrics.
@@ -58,28 +59,54 @@ func (c *Converter) Convert(body []byte) ([]telemetry.FrameWrapper, error) {
 	return c.convertWithLabelsColumn(metrics)
 }
 
+func getHash(m influx.Metric) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(m.Name()))
+	for _, f := range m.TagList() {
+		_, _ = h.Write([]byte(f.Key))
+		_, _ = h.Write([]byte(f.Value))
+	}
+	return h.Sum32()
+}
+
+type fieldInterval struct {
+	From int
+	To   int
+}
+
 func (c *Converter) convertWideFields(metrics []influx.Metric) ([]telemetry.FrameWrapper, error) {
 	// maintain the order of frames as they appear in input.
 	var frameKeyOrder []string
 	metricFrames := make(map[string]*metricFrame)
+	fieldIntervals := map[uint32]fieldInterval{}
 
 	for _, m := range metrics {
 		frameKey := getFrameKey(m)
+		mHash := getHash(m)
 		frame, ok := metricFrames[frameKey]
 		if ok {
-			// Existing frame.
-			err := frame.extend(m)
-			if err != nil {
-				return nil, err
+			if interval, ok := fieldIntervals[mHash]; ok {
+				err := frame.appendInInterval(m, interval)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				// Existing frame.
+				interval, err := frame.extendGetInterval(m)
+				if err != nil {
+					return nil, err
+				}
+				fieldIntervals[mHash] = interval
 			}
 		} else {
 			frameKeyOrder = append(frameKeyOrder, frameKey)
 			frame = newMetricFrame(m)
-			err := frame.extend(m)
+			interval, err := frame.extendGetInterval(m)
 			if err != nil {
 				return nil, err
 			}
 			metricFrames[frameKey] = frame
+			fieldIntervals[mHash] = interval
 		}
 	}
 
@@ -128,13 +155,15 @@ type metricFrame struct {
 	key        string
 	fields     []*data.Field
 	fieldCache map[string]int
+	timeCache  map[time.Time]struct{}
 }
 
 // newMetricFrame will return a new frame with length 1.
 func newMetricFrame(m influx.Metric) *metricFrame {
 	s := &metricFrame{
-		key:    m.Name(),
-		fields: make([]*data.Field, 1),
+		key:       m.Name(),
+		fields:    make([]*data.Field, 1),
+		timeCache: make(map[time.Time]struct{}),
 	}
 	s.fields[0] = data.NewField("time", nil, []time.Time{m.Time()})
 	return s
@@ -183,6 +212,28 @@ func (s *metricFrame) extend(m influx.Metric) error {
 	return nil
 }
 
+// extendGetInterval extends existing metricFrame fields and returns extended interval.
+func (s *metricFrame) extendGetInterval(m influx.Metric) (fieldInterval, error) {
+	fields := m.FieldList()
+	sort.Slice(fields, func(i, j int) bool {
+		return fields[i].Key < fields[j].Key
+	})
+	labels := tagsToLabels(m.TagList())
+	initialFieldLen := len(s.fields)
+	for _, f := range fields {
+		ft, v, err := getFieldTypeAndValue(f)
+		if err != nil {
+			return fieldInterval{}, err
+		}
+		field := data.NewFieldFromFieldType(ft, 1)
+		field.Name = f.Key
+		field.Labels = labels
+		field.Set(0, v)
+		s.fields = append(s.fields, field)
+	}
+	return fieldInterval{From: initialFieldLen, To: len(s.fields)}, nil
+}
+
 func tagsToLabels(tags []*influx.Tag) data.Labels {
 	labels := data.Labels{}
 	for i := 0; i < len(tags); i += 1 {
@@ -215,6 +266,28 @@ func (s *metricFrame) append(m influx.Metric) error {
 			s.fields = append(s.fields, field)
 			s.fieldCache[f.Key] = len(s.fields) - 1
 		}
+	}
+	return nil
+}
+
+// appendInInterval appends to existing metricFrame fields inside interval of fields.
+func (s *metricFrame) appendInInterval(m influx.Metric, interval fieldInterval) error {
+	if _, ok := s.timeCache[m.Time()]; !ok {
+		s.fields[0].Append(m.Time())
+		s.timeCache[m.Time()] = struct{}{}
+	}
+
+	fields := m.FieldList()
+	sort.Slice(fields, func(i, j int) bool {
+		return fields[i].Key < fields[j].Key
+	})
+
+	for i, f := range fields {
+		_, v, err := getFieldTypeAndValue(f)
+		if err != nil {
+			return err
+		}
+		s.fields[i+interval.From].Append(v)
 	}
 	return nil
 }
