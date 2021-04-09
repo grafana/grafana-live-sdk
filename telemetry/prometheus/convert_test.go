@@ -46,7 +46,7 @@ func TestConverter_Convert(t *testing.T) {
 	}
 }
 
-func BenchmarkConverter_Convert_Wide(b *testing.B) {
+func BenchmarkConverter_Convert(b *testing.B) {
 	testData := loadTestData(b, "metrics")
 	converter := NewConverter()
 	b.ReportAllocs()

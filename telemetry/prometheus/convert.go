@@ -2,6 +2,7 @@ package prometheus
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -21,6 +22,7 @@ type Converter struct {
 	format expfmt.Format
 }
 
+// NewConverter creates Converter.
 func NewConverter() *Converter {
 	return &Converter{
 		format: expfmt.FmtText,
@@ -47,34 +49,34 @@ func (c Converter) metricsToFrameWrappers(mfs []*dto.MetricFamily) ([]telemetry.
 			case dto.MetricType_COUNTER:
 				counter := m.GetCounter()
 				fields[0].Append(time.Now())
-				fields[1].Append(LabelsString(m.Label))
+				fields[1].Append(labelsString(m.Label))
 				fields[2].Append(counter.GetValue())
 			case dto.MetricType_GAUGE:
 				gauge := m.GetGauge()
 				fields[0].Append(time.Now())
-				fields[1].Append(LabelsString(m.Label))
+				fields[1].Append(labelsString(m.Label))
 				fields[2].Append(gauge.GetValue())
 			case dto.MetricType_SUMMARY:
 				summary := m.GetSummary()
+				// TODO: sum and count.
+				// count := summary.GetSampleCount()
+				// sum := summary.GetSampleSum()
 				for _, q := range summary.GetQuantile() {
 					fields[0].Append(time.Now())
-					fields[1].Append(LabelsString(extendQuantileLabels(q, m.GetLabel())))
+					fields[1].Append(labelsString(extendQuantileLabels(q, m.GetLabel())))
 					fields[2].Append(q.GetValue())
 				}
-				// TODO: sum and count.
-				//count := summary.GetSampleCount()
-				//sum := summary.GetSampleSum()
 			case dto.MetricType_HISTOGRAM:
 				hist := m.GetHistogram()
+				// TODO: sum and count.
+				// count := hist.GetSampleCount()
+				// sum := hist.GetSampleSum()
 				for _, b := range hist.GetBucket() {
 					b.GetCumulativeCount()
 					fields[0].Append(time.Now())
-					fields[1].Append(LabelsString(extendBucketLabels(b, m.GetLabel())))
+					fields[1].Append(labelsString(extendBucketLabels(b, m.GetLabel())))
 					fields[2].Append(b.GetCumulativeCount())
 				}
-				// TODO: sum and count.
-				//count := hist.GetSampleCount()
-				//sum := hist.GetSampleSum()
 			}
 		}
 		frame := data.NewFrame(metricName, fields...)
@@ -83,6 +85,7 @@ func (c Converter) metricsToFrameWrappers(mfs []*dto.MetricFamily) ([]telemetry.
 	return frameWrappers, nil
 }
 
+// Convert input to data frames.
 func (c Converter) Convert(input []byte) ([]telemetry.FrameWrapper, error) {
 	decoder := expfmt.NewDecoder(bytes.NewReader(input), c.format)
 	var mfs []*dto.MetricFamily
@@ -90,7 +93,7 @@ func (c Converter) Convert(input []byte) ([]telemetry.FrameWrapper, error) {
 		var mf dto.MetricFamily
 		err := decoder.Decode(&mf)
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return nil, err
@@ -138,7 +141,7 @@ func (s *metricFrame) Frame() *data.Frame {
 	return s.frame
 }
 
-func LabelsString(l []*dto.LabelPair) string {
+func labelsString(l []*dto.LabelPair) string {
 	sort.Slice(l, func(i, j int) bool {
 		return l[i].GetName() < l[j].GetName()
 	})
@@ -150,7 +153,6 @@ func LabelsString(l []*dto.LabelPair) string {
 		if i != len(l)-1 {
 			sb.WriteString(", ")
 		}
-		i++
 	}
 	return sb.String()
 }
