@@ -184,3 +184,43 @@ func TestConverter_Convert_NumFrameFields_LabelsColumn(t *testing.T) {
 	}
 	require.JSONEqf(t, string(frameJSON), string(want), "not matched with golden file")
 }
+
+func TestConverter_Convert_LabelsColumn_MixedNumberTypes_Panics(t *testing.T) {
+	testData := loadTestData(t, "mixed_number_types")
+	converter := NewConverter(WithUseLabelsColumn(true))
+	require.Panics(t, func() {
+		_, _ = converter.Convert(testData)
+	})
+}
+
+func TestConverter_Convert_MixedNumberTypes_OK(t *testing.T) {
+	testData := loadTestData(t, "mixed_number_types")
+	converter := NewConverter(WithFloatNumbers(true))
+	frameWrappers, err := converter.Convert(testData)
+	require.NoError(t, err)
+	require.Len(t, frameWrappers, 2)
+}
+
+func TestConverter_Convert_MixedNumberTypes_OK_LabelsColumn(t *testing.T) {
+	testData := loadTestData(t, "mixed_number_types")
+	converter := NewConverter(WithUseLabelsColumn(true), WithFloatNumbers(true))
+	frameWrappers, err := converter.Convert(testData)
+	require.NoError(t, err)
+	require.Len(t, frameWrappers, 1)
+}
+
+func TestConverter_Convert_PartInput(t *testing.T) {
+	testData := loadTestData(t, "part_metrics_different_labels_different_time")
+	converter := NewConverter()
+	frameWrappers, err := converter.Convert(testData)
+	require.NoError(t, err)
+	require.Len(t, frameWrappers, 2)
+}
+
+func TestConverter_Convert_PartInput_LabelsColumn(t *testing.T) {
+	testData := loadTestData(t, "part_metrics_different_labels_different_time")
+	converter := NewConverter(WithUseLabelsColumn(true))
+	frameWrappers, err := converter.Convert(testData)
+	require.NoError(t, err)
+	require.Len(t, frameWrappers, 1)
+}
