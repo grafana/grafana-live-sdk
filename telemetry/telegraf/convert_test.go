@@ -195,7 +195,7 @@ func TestConverter_Convert_LabelsColumn_MixedNumberTypes_Panics(t *testing.T) {
 
 func TestConverter_Convert_MixedNumberTypes_OK(t *testing.T) {
 	testData := loadTestData(t, "mixed_number_types")
-	converter := NewConverter(WithFloatNumbers(true))
+	converter := NewConverter(WithFloat64Numbers(true))
 	frameWrappers, err := converter.Convert(testData)
 	require.NoError(t, err)
 	require.Len(t, frameWrappers, 2)
@@ -203,7 +203,7 @@ func TestConverter_Convert_MixedNumberTypes_OK(t *testing.T) {
 
 func TestConverter_Convert_MixedNumberTypes_OK_LabelsColumn(t *testing.T) {
 	testData := loadTestData(t, "mixed_number_types")
-	converter := NewConverter(WithUseLabelsColumn(true), WithFloatNumbers(true))
+	converter := NewConverter(WithUseLabelsColumn(true), WithFloat64Numbers(true))
 	frameWrappers, err := converter.Convert(testData)
 	require.NoError(t, err)
 	require.Len(t, frameWrappers, 1)

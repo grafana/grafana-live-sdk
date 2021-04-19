@@ -15,9 +15,9 @@ var _ telemetry.Converter = (*Converter)(nil)
 
 // Converter converts Telegraf metrics to Grafana frames.
 type Converter struct {
-	parser          *influx.Parser
-	useLabelsColumn bool
-	useFloatNumbers bool
+	parser            *influx.Parser
+	useLabelsColumn   bool
+	useFloat64Numbers bool
 }
 
 // ConverterOption ...
@@ -30,10 +30,10 @@ func WithUseLabelsColumn(enabled bool) ConverterOption {
 	}
 }
 
-// WithFloatNumbers ...
-func WithFloatNumbers(enabled bool) ConverterOption {
+// WithFloat64Numbers will convert all numbers met to float64 type.
+func WithFloat64Numbers(enabled bool) ConverterOption {
 	return func(h *Converter) {
-		h.useFloatNumbers = enabled
+		h.useFloat64Numbers = enabled
 	}
 }
 
@@ -82,7 +82,7 @@ func (c *Converter) convertWideFields(metrics []influx.Metric) ([]telemetry.Fram
 			}
 		} else {
 			frameKeyOrder = append(frameKeyOrder, frameKey)
-			frame = newMetricFrame(m, c.useFloatNumbers)
+			frame = newMetricFrame(m, c.useFloat64Numbers)
 			err := frame.extend(m)
 			if err != nil {
 				return nil, err
@@ -115,7 +115,7 @@ func (c *Converter) convertWithLabelsColumn(metrics []influx.Metric) ([]telemetr
 			}
 		} else {
 			frameKeyOrder = append(frameKeyOrder, frameKey)
-			frame = newMetricFrameLabelsColumn(m, c.useFloatNumbers)
+			frame = newMetricFrameLabelsColumn(m, c.useFloat64Numbers)
 			err := frame.append(m)
 			if err != nil {
 				return nil, err
@@ -230,30 +230,30 @@ func (s *metricFrame) append(m influx.Metric) error {
 	return nil
 }
 
-// floatFieldTypeFor converts all numbers to floats.
-// The precision can be lost during big int64 or uint64 conversion to float.
-func floatFieldTypeFor(t interface{}) data.FieldType {
+// float64FieldTypeFor converts all numbers to float64.
+// The precision can be lost during big int64 or uint64 conversion to float64.
+func float64FieldTypeFor(t interface{}) data.FieldType {
 	switch t.(type) {
 	case int8:
-		return data.FieldTypeFloat32
+		return data.FieldTypeFloat64
 	case int16:
-		return data.FieldTypeFloat32
+		return data.FieldTypeFloat64
 	case int32:
-		return data.FieldTypeFloat32
+		return data.FieldTypeFloat64
 	case int64:
 		return data.FieldTypeFloat64
 
 	case uint8:
-		return data.FieldTypeFloat32
+		return data.FieldTypeFloat64
 	case uint16:
-		return data.FieldTypeFloat32
+		return data.FieldTypeFloat64
 	case uint32:
 		return data.FieldTypeFloat64
 	case uint64:
 		return data.FieldTypeFloat64
 
 	case float32:
-		return data.FieldTypeFloat32
+		return data.FieldTypeFloat64
 	case float64:
 		return data.FieldTypeFloat64
 	case bool:
@@ -269,7 +269,7 @@ func floatFieldTypeFor(t interface{}) data.FieldType {
 func (s *metricFrame) getFieldTypeAndValue(f *influx.Field) (data.FieldType, interface{}, error) {
 	var ft data.FieldType
 	if s.useFloatNumbers {
-		ft = floatFieldTypeFor(f.Value)
+		ft = float64FieldTypeFor(f.Value)
 	} else {
 		ft = data.FieldTypeFor(f.Value)
 	}
