@@ -15,8 +15,9 @@ var _ telemetry.Converter = (*Converter)(nil)
 
 // Converter converts Telegraf metrics to Grafana frames.
 type Converter struct {
-	parser          *influx.Parser
-	useLabelsColumn bool
+	parser            *influx.Parser
+	useLabelsColumn   bool
+	useFloat64Numbers bool
 }
 
 // ConverterOption ...
@@ -26,6 +27,13 @@ type ConverterOption func(*Converter)
 func WithUseLabelsColumn(enabled bool) ConverterOption {
 	return func(h *Converter) {
 		h.useLabelsColumn = enabled
+	}
+}
+
+// WithFloat64Numbers will convert all numbers met to float64 type.
+func WithFloat64Numbers(enabled bool) ConverterOption {
+	return func(h *Converter) {
+		h.useFloat64Numbers = enabled
 	}
 }
 
@@ -74,7 +82,7 @@ func (c *Converter) convertWideFields(metrics []influx.Metric) ([]telemetry.Fram
 			}
 		} else {
 			frameKeyOrder = append(frameKeyOrder, frameKey)
-			frame = newMetricFrame(m)
+			frame = newMetricFrame(m, c.useFloat64Numbers)
 			err := frame.extend(m)
 			if err != nil {
 				return nil, err
@@ -107,7 +115,7 @@ func (c *Converter) convertWithLabelsColumn(metrics []influx.Metric) ([]telemetr
 			}
 		} else {
 			frameKeyOrder = append(frameKeyOrder, frameKey)
-			frame = newMetricFrameLabelsColumn(m)
+			frame = newMetricFrameLabelsColumn(m, c.useFloat64Numbers)
 			err := frame.append(m)
 			if err != nil {
 				return nil, err
@@ -125,27 +133,30 @@ func (c *Converter) convertWithLabelsColumn(metrics []influx.Metric) ([]telemetr
 }
 
 type metricFrame struct {
-	key        string
-	fields     []*data.Field
-	fieldCache map[string]int
+	useFloatNumbers bool
+	key             string
+	fields          []*data.Field
+	fieldCache      map[string]int
 }
 
 // newMetricFrame will return a new frame with length 1.
-func newMetricFrame(m influx.Metric) *metricFrame {
+func newMetricFrame(m influx.Metric, useFloatNumbers bool) *metricFrame {
 	s := &metricFrame{
-		key:    m.Name(),
-		fields: make([]*data.Field, 1),
+		useFloatNumbers: useFloatNumbers,
+		key:             m.Name(),
+		fields:          make([]*data.Field, 1),
 	}
 	s.fields[0] = data.NewField("time", nil, []time.Time{m.Time()})
 	return s
 }
 
 // newMetricFrame will return a new frame with length 1.
-func newMetricFrameLabelsColumn(m influx.Metric) *metricFrame {
+func newMetricFrameLabelsColumn(m influx.Metric, useFloatNumbers bool) *metricFrame {
 	s := &metricFrame{
-		key:        m.Name(),
-		fields:     make([]*data.Field, 2),
-		fieldCache: map[string]int{},
+		useFloatNumbers: useFloatNumbers,
+		key:             m.Name(),
+		fields:          make([]*data.Field, 2),
+		fieldCache:      map[string]int{},
 	}
 	s.fields[0] = data.NewField("time", nil, []time.Time{})
 	s.fields[1] = data.NewField("labels", nil, []string{})
@@ -170,7 +181,7 @@ func (s *metricFrame) extend(m influx.Metric) error {
 	})
 	labels := tagsToLabels(m.TagList())
 	for _, f := range fields {
-		ft, v, err := getFieldTypeAndValue(f)
+		ft, v, err := s.getFieldTypeAndValue(f)
 		if err != nil {
 			return err
 		}
@@ -202,7 +213,7 @@ func (s *metricFrame) append(m influx.Metric) error {
 	})
 
 	for _, f := range fields {
-		ft, v, err := getFieldTypeAndValue(f)
+		ft, v, err := s.getFieldTypeAndValue(f)
 		if err != nil {
 			return err
 		}
@@ -219,8 +230,49 @@ func (s *metricFrame) append(m influx.Metric) error {
 	return nil
 }
 
-func getFieldTypeAndValue(f *influx.Field) (data.FieldType, interface{}, error) {
-	ft := data.FieldTypeFor(f.Value)
+// float64FieldTypeFor converts all numbers to float64.
+// The precision can be lost during big int64 or uint64 conversion to float64.
+func float64FieldTypeFor(t interface{}) data.FieldType {
+	switch t.(type) {
+	case int8:
+		return data.FieldTypeFloat64
+	case int16:
+		return data.FieldTypeFloat64
+	case int32:
+		return data.FieldTypeFloat64
+	case int64:
+		return data.FieldTypeFloat64
+
+	case uint8:
+		return data.FieldTypeFloat64
+	case uint16:
+		return data.FieldTypeFloat64
+	case uint32:
+		return data.FieldTypeFloat64
+	case uint64:
+		return data.FieldTypeFloat64
+
+	case float32:
+		return data.FieldTypeFloat64
+	case float64:
+		return data.FieldTypeFloat64
+	case bool:
+		return data.FieldTypeBool
+	case string:
+		return data.FieldTypeString
+	case time.Time:
+		return data.FieldTypeTime
+	}
+	return data.FieldTypeUnknown
+}
+
+func (s *metricFrame) getFieldTypeAndValue(f *influx.Field) (data.FieldType, interface{}, error) {
+	var ft data.FieldType
+	if s.useFloatNumbers {
+		ft = float64FieldTypeFor(f.Value)
+	} else {
+		ft = data.FieldTypeFor(f.Value)
+	}
 	if ft == data.FieldTypeUnknown {
 		return ft, nil, fmt.Errorf("unknown type: %t", f.Value)
 	}
