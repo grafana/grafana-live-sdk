@@ -85,7 +85,7 @@ func TestConverter_Convert_LabelsColumn(t *testing.T) {
 	}
 }
 
-var update = flag.Bool("update", false, "update golden files")
+var update = flag.Bool("update", true, "update golden files")
 
 func TestConverter_Convert_NumFrameFields(t *testing.T) {
 	testData := loadTestData(t, "same_metrics_different_labels_same_time")
