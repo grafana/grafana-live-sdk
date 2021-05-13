@@ -158,8 +158,8 @@ func newMetricFrameLabelsColumn(m influx.Metric, useFloatNumbers bool) *metricFr
 		fields:          make([]*data.Field, 2),
 		fieldCache:      map[string]int{},
 	}
-	s.fields[0] = data.NewField("time", nil, []time.Time{})
-	s.fields[1] = data.NewField("labels", nil, []string{})
+	s.fields[0] = data.NewField("labels", nil, []string{})
+	s.fields[1] = data.NewField("time", nil, []time.Time{})
 	return s
 }
 
@@ -204,8 +204,8 @@ func tagsToLabels(tags []*influx.Tag) data.Labels {
 
 // append to existing metricFrame fields.
 func (s *metricFrame) append(m influx.Metric) error {
-	s.fields[0].Append(m.Time())
-	s.fields[1].Append(tagsToLabels(m.TagList()).String()) // TODO, use labels.String()
+	s.fields[0].Append(tagsToLabels(m.TagList()).String()) // TODO, use labels.String()
+	s.fields[1].Append(m.Time())
 
 	fields := m.FieldList()
 	sort.Slice(fields, func(i, j int) bool {
