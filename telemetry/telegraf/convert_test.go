@@ -1,6 +1,7 @@
 package telegraf
 
 import (
+	"encoding/json"
 	"flag"
 	"io/ioutil"
 	"path/filepath"
@@ -85,7 +86,7 @@ func TestConverter_Convert_LabelsColumn(t *testing.T) {
 	}
 }
 
-var update = flag.Bool("update", true, "update golden files")
+var update = flag.Bool("update", false, "update golden files")
 
 func TestConverter_Convert_NumFrameFields(t *testing.T) {
 	testData := loadTestData(t, "same_metrics_different_labels_same_time")
@@ -99,7 +100,7 @@ func TestConverter_Convert_NumFrameFields(t *testing.T) {
 
 	frame := frameWrapper.Frame()
 	require.Len(t, frame.Fields, 131) // 10 measurements across 13 metrics + time field.
-	frameJSON, err := data.FrameToJSON(frame, true, true)
+	frameJSON, err := json.MarshalIndent(frame, "", "  ")
 	require.NoError(t, err)
 	if *update {
 		if err := ioutil.WriteFile(goldenFile, frameJSON, 0600); err != nil {
@@ -171,7 +172,7 @@ func TestConverter_Convert_NumFrameFields_LabelsColumn(t *testing.T) {
 
 	frame := frameWrapper.Frame()
 	require.Len(t, frame.Fields, 12)
-	frameJSON, err := data.FrameToJSON(frame, true, true)
+	frameJSON, err := json.MarshalIndent(frame, "", "  ")
 	require.NoError(t, err)
 	if *update {
 		if err := ioutil.WriteFile(goldenFile, frameJSON, 0600); err != nil {
