@@ -218,7 +218,24 @@ func (s *metricFrame) append(m influx.Metric) error {
 			return err
 		}
 		if index, ok := s.fieldCache[f.Key]; ok {
-			s.fields[index].Append(v)
+			field := s.fields[index]
+			if ft == field.Type() {
+				field.Append(v)
+			} else {
+				fmt.Printf("---------------------------------------------------------\n")
+				fmt.Printf("---------------------------------------------------------\n")
+				fmt.Printf("---------------------------------------------------------\n")
+				fmt.Printf("---------------------------------------------------------\n")
+				fmt.Printf("---------------------------------------------------------\n")
+				fmt.Printf("%v // %v // %v\n", field.Type(), ft, v)
+				fmt.Printf("%v\n", m)
+				fmt.Printf("---------------------------------------------------------\n")
+				fmt.Printf("---------------------------------------------------------\n")
+				fmt.Printf("---------------------------------------------------------\n")
+				fmt.Printf("---------------------------------------------------------\n")
+				fmt.Printf("---------------------------------------------------------\n")
+				field.Append(nil)
+			}
 		} else {
 			field := data.NewFieldFromFieldType(ft, 1)
 			field.Name = f.Key
