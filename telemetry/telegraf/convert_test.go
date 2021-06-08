@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
+	"github.com/grafana/grafana-plugin-sdk-go/experimental"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,6 +19,26 @@ func loadTestData(tb testing.TB, file string) []byte {
 	require.NoError(tb, err, "expected to be able to read file")
 	require.True(tb, len(content) > 0)
 	return content
+}
+
+func checkTestData(tb testing.TB, file string) *backend.DataResponse {
+	tb.Helper()
+	content, err := ioutil.ReadFile(filepath.Join("testdata", file+".txt"))
+	require.NoError(tb, err, "expected to be able to read file")
+	require.True(tb, len(content) > 0)
+
+	converter := NewConverter(WithUseLabelsColumn(true))
+	frameWrappers, err := converter.Convert(content)
+	require.NoError(tb, err)
+
+	dr := &backend.DataResponse{}
+	for _, w := range frameWrappers {
+		dr.Frames = append(dr.Frames, w.Frame())
+	}
+
+	err = experimental.CheckGoldenDataResponse(filepath.Join("testdata", file+".golden.txt"), dr, true)
+	require.NoError(tb, err)
+	return dr
 }
 
 func TestNewConverter(t *testing.T) {
@@ -114,12 +136,18 @@ func TestConverter_Convert_NumFrameFields(t *testing.T) {
 	require.JSONEqf(t, string(frameJSON), string(want), "not matched with golden file")
 }
 
+func TestConverter_Convert_ChangingTypes(t *testing.T) {
+	dr := checkTestData(t, "changing_types_NaN")
+	require.NotNil(t, dr)
+}
+
 func TestConverter_Convert_FieldOrder(t *testing.T) {
 	converter := NewConverter()
 
 	testData := loadTestData(t, "single_metric")
 	frameWrappers, err := converter.Convert(testData)
 	require.NoError(t, err)
+
 	require.Len(t, frameWrappers, 1)
 	frameJSON1, err := data.FrameToJSON(frameWrappers[0].Frame(), true, true)
 	require.NoError(t, err)
@@ -184,14 +212,6 @@ func TestConverter_Convert_NumFrameFields_LabelsColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 	require.JSONEqf(t, string(frameJSON), string(want), "not matched with golden file")
-}
-
-func TestConverter_Convert_LabelsColumn_MixedNumberTypes_Panics(t *testing.T) {
-	testData := loadTestData(t, "mixed_number_types")
-	converter := NewConverter(WithUseLabelsColumn(true))
-	require.Panics(t, func() {
-		_, _ = converter.Convert(testData)
-	})
 }
 
 func TestConverter_Convert_MixedNumberTypes_OK(t *testing.T) {
