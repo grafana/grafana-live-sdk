@@ -70,7 +70,7 @@ func TestConverter_Convert(t *testing.T) {
 				frame := fw.Frame()
 				require.Len(t, frame.Fields, tt.NumFields)
 				require.Equal(t, tt.FieldLength, frame.Fields[0].Len())
-				_, err := data.FrameToJSON(frame, true, true)
+				_, err := data.FrameToJSON(frame, data.IncludeAll)
 				require.NoError(t, err)
 			}
 		})
@@ -101,7 +101,7 @@ func TestConverter_Convert_LabelsColumn(t *testing.T) {
 				frame := fw.Frame()
 				require.Len(t, frame.Fields, tt.NumFields)
 				require.Equal(t, tt.FieldLength, frame.Fields[0].Len())
-				_, err := data.FrameToJSON(frame, true, true)
+				_, err := data.FrameToJSON(frame, data.IncludeAll)
 				require.NoError(t, err)
 			}
 		})
@@ -149,14 +149,14 @@ func TestConverter_Convert_FieldOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, frameWrappers, 1)
-	frameJSON1, err := data.FrameToJSON(frameWrappers[0].Frame(), true, true)
+	frameJSON1, err := data.FrameToJSON(frameWrappers[0].Frame(), data.IncludeAll)
 	require.NoError(t, err)
 
 	testDataDifferentOrder := loadTestData(t, "single_metric_different_field_order")
 	frameWrappers, err = converter.Convert(testDataDifferentOrder)
 	require.NoError(t, err)
 	require.Len(t, frameWrappers, 1)
-	frameJSON2, err := data.FrameToJSON(frameWrappers[0].Frame(), true, true)
+	frameJSON2, err := data.FrameToJSON(frameWrappers[0].Frame(), data.IncludeAll)
 	require.NoError(t, err)
 
 	require.JSONEqf(t, string(frameJSON1), string(frameJSON2), "frames must match")
