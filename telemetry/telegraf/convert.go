@@ -219,23 +219,16 @@ func (s *metricFrame) append(m influx.Metric) error {
 		}
 		if index, ok := s.fieldCache[f.Key]; ok {
 			field := s.fields[index]
-			if ft == field.Type() {
-				field.Append(v)
-			} else {
-				fmt.Printf("---------------------------------------------------------\n")
-				fmt.Printf("---------------------------------------------------------\n")
-				fmt.Printf("---------------------------------------------------------\n")
-				fmt.Printf("---------------------------------------------------------\n")
-				fmt.Printf("---------------------------------------------------------\n")
-				fmt.Printf("%v // %v // %v\n", field.Type(), ft, v)
-				fmt.Printf("%v\n", m)
-				fmt.Printf("---------------------------------------------------------\n")
-				fmt.Printf("---------------------------------------------------------\n")
-				fmt.Printf("---------------------------------------------------------\n")
-				fmt.Printf("---------------------------------------------------------\n")
-				fmt.Printf("---------------------------------------------------------\n")
-				field.Append(nil)
+			if ft != field.Type() {
+				fmt.Printf("error appending value of type: %v as %v // %v\n", field.Type(), ft, v)
+				if field.Type() == data.FieldTypeNullableString && v != nil {
+					str := fmt.Sprintf("%v", f.Value)
+					v = &str
+				} else {
+					v = nil
+				}
 			}
+			field.Append(v)
 		} else {
 			field := data.NewFieldFromFieldType(ft, 1)
 			field.Name = f.Key
